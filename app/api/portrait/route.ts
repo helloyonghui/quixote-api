@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, getAuthUser } from '@/lib/supabase';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${GEMINI_API_KEY}`;
+// Gemini Developer API endpoint for Imagen 3 (NOT the Vertex AI :predict format)
+const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateImages?key=${GEMINI_API_KEY}`;
 const BUCKET = 'portraits';
 
 /**
@@ -55,18 +56,16 @@ export async function POST(req: NextRequest) {
         } catch { /* file doesn't exist, fall through */ }
     }
 
-    // 4. Generate with Imagen 3
+    // 4. Generate with Imagen 3 — Gemini Developer API format
     const imagenRes = await fetch(IMAGEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            instances: [{ prompt }],
-            parameters: {
-                sampleCount: 1,
-                aspectRatio,
-                safetyFilterLevel: 'block_few',
-                personGeneration: 'allow_adult',
-            },
+            prompt: { text: prompt },
+            sampleCount: 1,
+            aspectRatio,
+            safetyFilterLevel: 'BLOCK_FEW',
+            personGeneration: 'ALLOW_ADULT',
         }),
         signal: AbortSignal.timeout(45_000),
     });
@@ -78,7 +77,8 @@ export async function POST(req: NextRequest) {
     }
 
     const imagenData = await imagenRes.json();
-    const b64 = imagenData?.predictions?.[0]?.bytesBase64Encoded;
+    // Gemini Developer API response: { generatedImages: [{ image: { imageBytes: 'base64...' } }] }
+    const b64 = imagenData?.generatedImages?.[0]?.image?.imageBytes;
     if (!b64) {
         return NextResponse.json({ error: 'No image returned from Imagen' }, { status: 502 });
     }
