@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, getAuthUser } from '@/lib/supabase';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-// Gemini Developer API endpoint for Imagen 3 (NOT the Vertex AI :predict format)
-const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:generateImages?key=${GEMINI_API_KEY}`;
+// Imagen 4 Fast via :predict (curl-confirmed working: HTTP 200 with Gemini Developer API key)
+// API key has: imagen-4.0-generate-001, imagen-4.0-ultra-generate-001, imagen-4.0-fast-generate-001
+// None have :generateImages — all use Vertex-style :predict
+const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${GEMINI_API_KEY}`;
 const BUCKET = 'portraits';
 
 /**
@@ -56,29 +58,32 @@ export async function POST(req: NextRequest) {
         } catch { /* file doesn't exist, fall through */ }
     }
 
-    // 4. Generate with Imagen 3 — Gemini Developer API format
+    // 4. Generate with Imagen 4 Fast — Vertex-style :predict body (confirmed working)
     const imagenRes = await fetch(IMAGEN_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            prompt: { text: prompt },
-            sampleCount: 1,
-            aspectRatio,
-            safetyFilterLevel: 'BLOCK_FEW',
-            personGeneration: 'ALLOW_ADULT',
+            instances: [{ prompt }],
+            parameters: {
+                sampleCount: 1,
+                aspectRatio,
+                safetyFilterLevel: 'block_few',
+                personGeneration: 'allow_adult',
+            },
         }),
         signal: AbortSignal.timeout(45_000),
     });
 
     if (!imagenRes.ok) {
-        const err = await imagenRes.text();
-        console.error('[portrait] Imagen error:', err);
-        return NextResponse.json({ error: 'Imagen failed', detail: err }, { status: 502 });
+        const errText = await imagenRes.text().catch(() => '');
+        const errJson = errText ? JSON.stringify(errText) : `(empty body, HTTP ${imagenRes.status} ${imagenRes.statusText})`;
+        console.error('[portrait] Imagen error status:', imagenRes.status, 'body:', errText || '(empty)');
+        return NextResponse.json({ error: 'Imagen failed', detail: errJson, status: imagenRes.status }, { status: 502 });
     }
 
     const imagenData = await imagenRes.json();
-    // Gemini Developer API response: { generatedImages: [{ image: { imageBytes: 'base64...' } }] }
-    const b64 = imagenData?.generatedImages?.[0]?.image?.imageBytes;
+    // Response: { predictions: [{ bytesBase64Encoded: '...', mimeType: 'image/png' }] }
+    const b64 = imagenData?.predictions?.[0]?.bytesBase64Encoded;
     if (!b64) {
         return NextResponse.json({ error: 'No image returned from Imagen' }, { status: 502 });
     }
