@@ -58,12 +58,9 @@ export async function POST(req: NextRequest) {
         } catch { /* file doesn't exist, fall through */ }
     }
 
-    // 4. Generate with Imagen 4 Fast — Vertex-style :predict body (confirmed working)
-    // Derive negative prompt from aspect ratio (3:4 = character portrait, 1:1 = item)
-    const defaultNegativePrompt = aspectRatio === '3:4'
+    const negativePrompt = aspectRatio === '3:4'
         ? 'empty landscape, scenery without people, no face, multiple characters, crowd, text, watermark, extra limbs, disfigured, bad anatomy, blurry, low quality'
         : 'people, characters, human face, text, watermark, blurry, low quality, cluttered background';
-    const negativePrompt = (body as any).negativePrompt || defaultNegativePrompt;
 
     const imagenRes = await fetch(IMAGEN_URL, {
         method: 'POST',
